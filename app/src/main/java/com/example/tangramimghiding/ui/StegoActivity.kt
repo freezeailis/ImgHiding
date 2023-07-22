@@ -25,7 +25,6 @@ import com.bumptech.glide.Glide
 import com.example.tangramimghiding.R
 import com.example.tangramimghiding.databinding.ActivityStegoBinding
 import com.example.tangramimghiding.logic.dao.BlocksDao
-import com.example.tangramimghiding.logic.dao.CodeStringDao
 import com.example.tangramimghiding.logic.dao.TransResDao
 import com.example.tangramimghiding.logic.dao.saveToAlbum
 import com.example.tangramimghiding.logic.model.SettingParameters
@@ -45,6 +44,8 @@ import kotlin.concurrent.thread
  *@time 2023/7/18 20:03
 */
 class StegoActivity : AppCompatActivity() {
+
+
     private lateinit var binding: ActivityStegoBinding
     private val handler by lazy { StegoHandler(Looper.getMainLooper()) }
     private val viewModel by lazy { ViewModelProvider(this).get(StegoViewModel::class.java) }
@@ -77,7 +78,7 @@ class StegoActivity : AppCompatActivity() {
         viewModel.secretBlocks = IntArray(defaultSecretImg.height * defaultSecretImg.width)
         viewModel.containerBlocks = IntArray(defaultContainerImg.height * defaultContainerImg.width)
             // 对默认秘密图像和默认载体图像做分割,
-        // 只有当默认分割任务做完了, 才会允许执行自定义图片的分割任务(不过事实上耗时很短, 一般不至于出现这种情形)
+        // 只有当默认分割任务做完了, 自定义图片的分割任务才会被允许执行(不过事实上耗时很短, 一般不至于出现这种情形)
         val defaultImgSplitThread =  thread {
             val pool = ForkJoinPool()
             viewModel.ifContainerHasSplit = pool.invoke(BitmapSplitTask(0, defaultContainerImg.height,
@@ -95,23 +96,21 @@ class StegoActivity : AppCompatActivity() {
         val containerAlbumLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()){
             it?.let { uri ->
                 Glide.with(this@StegoActivity).asBitmap().load(uri).into(binding.containerImgView)
+                // 等待默认分割线程
+                defaultImgSplitThread.join()
+                viewModel.ifContainerHasSplit = false
                 thread {
-                    // 短暂的不能执行
-                    viewModel.ifContainerHasSplit = false
-                    handler.sendEmptyMessage(MsgType.RefreshExecutable.value)
-                    // 更新 viewModel 里面的图像为选择并处理后的图像
+                    // 1. 根据 uri 读取并缩放裁剪选择的图像
                     var containerImg = Glide.with(this@StegoActivity).asBitmap().load(uri).submit().get()
                     containerImg.config = Bitmap.Config.ARGB_8888
                     containerImg = ImgHandleUtils.scaleAndTrim(containerImg, SettingParameters.ifScaled)
                     val cntOfBlocks =
                         containerImg.height * containerImg.width / SettingParameters.blockEleCnt
+                    // 2. 对处理后的图像做预处理(分割)
                     viewModel.containerImg = containerImg
                     viewModel.containerBlocks =
                         IntArray(cntOfBlocks * SettingParameters.blockEleCnt)
-
                     viewModel.containerImg?.let { img ->
-                        // 等待默认分割线程
-                        defaultImgSplitThread.join()
                         // 分割所选择的图像
                         val pool = ForkJoinPool()
                         viewModel.ifContainerHasSplit = pool.invoke(
@@ -126,33 +125,35 @@ class StegoActivity : AppCompatActivity() {
                     handler.sendEmptyMessage(MsgType.RefreshExecutable.value)
                 }
             }
+            if (it == null){
+                // 没做任何选择就返回的情况
+                binding.selectContainerImgBtn.isClickable = true
+            }
         }
         binding.selectContainerImgBtn.setOnClickListener {
+            it.isClickable = false
             containerAlbumLauncher.launch(arrayOf("image/*"))
         }
 
         // 秘密图像的选择和加载
         val secretAlbumLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()){
             it?.let { uri->
-
                 Glide.with(this@StegoActivity).asBitmap().load(uri).into(binding.secretImgView)
+                // 等待默认分割线程
+                defaultImgSplitThread.join()
+                viewModel.ifSecretHasSplit = false
                 thread {
-                    // 短暂的不能执行
-                    viewModel.ifSecretHasSplit = false
-                    handler.sendEmptyMessage(MsgType.RefreshExecutable.value)
-                    // 更新 viewModel 里面的图像为选择并处理后的图像
+                    // 1. 根据 uri 读取并缩放裁剪所选择的图像
                     var secretImg = Glide.with(this@StegoActivity).asBitmap().load(uri).submit().get()
                     secretImg.config = Bitmap.Config.ARGB_8888
                     secretImg = ImgHandleUtils.scaleAndTrim(secretImg, SettingParameters.ifScaled)
                     val cntOfBlocks =
                         secretImg.height * secretImg.width / SettingParameters.blockEleCnt
+                    // 2. 对处理后的图像做预处理(分割)
                     viewModel.secretImg = secretImg
                     viewModel.secretBlocks =
                         IntArray(cntOfBlocks * SettingParameters.blockEleCnt)
-
                     viewModel.secretImg?.let { img ->
-                        // 等待默认分割线程
-                        defaultImgSplitThread.join()
                         // 分割所选择的图像
                         val pool = ForkJoinPool()
                         viewModel.ifSecretHasSplit = pool.invoke(
@@ -165,18 +166,19 @@ class StegoActivity : AppCompatActivity() {
                     }
                     // 发送可以执行的通知(可能可以执行)
                     handler.sendEmptyMessage(MsgType.RefreshExecutable.value)
-                    Log.d(
-                        "read", "containerImg height is %d, width is %d"
-                            .format(viewModel.containerImg?.height, viewModel.containerImg?.width)
-                    )
                 }
+            }
+            if (it == null) {
+                // 没做任何选择就返回的情况
+                binding.selectSecretImgBtn.isClickable = true
             }
         }
         binding.selectSecretImgBtn.setOnClickListener {
+            it.isClickable = false
             secretAlbumLauncher.launch(arrayOf("image/*"))
         }
 
-        // 算法的执行
+        // 控制搜索算法的执行
         binding.executeTangramBtn.setOnClickListener {
             it.isClickable = false
             binding.executeTangramTv.setTextColor(getColor(R.color.draker_gray))
@@ -186,7 +188,7 @@ class StegoActivity : AppCompatActivity() {
             }
 
             val intent = Intent(this, SearchTransService::class.java)
-            // blocks 太大, 改用 SharedPreferences 传输
+            // blocks 太大, 改用 cache 文件传输
             BlocksDao.putBlocks("containerBlocks", viewModel.containerBlocks)
             BlocksDao.putBlocks("secretBlocks", viewModel.secretBlocks)
 //            intent.putExtra("containerBlocks", viewModel.containerBlocks)
@@ -226,8 +228,14 @@ class StegoActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null) // help gc
+        super.onDestroy()
+    }
+
     /**
      * 根据广播的内容对搜索进度条进行更新
+     * 收到搜索完成的广播后, 启动嵌入任务的线程
      *@author aris
      *@time 2023/7/17 20:55
     */
@@ -239,7 +247,7 @@ class StegoActivity : AppCompatActivity() {
             binding.processHintTv.text = s
             binding.processBar.progress = process.toInt()
                 // 搜索完成
-            // 完成搜索时会传入200.0表示完成
+            // 完成 搜索 和 保存变换参数 时会传入200.0表示完成
             if (process > 150.0){
                 val defaultS = "finish 0.0 %"
                 binding.processHintTv.text = defaultS
@@ -250,9 +258,7 @@ class StegoActivity : AppCompatActivity() {
                 // 开始嵌入任务
                 val embeddingThread = Thread(EmbeddingAction())
                 embeddingThread.start()
-                embeddingThread.join()
-                // 嵌入完成后允许保存图像
-                handler.sendEmptyMessage(MsgType.EnableSaveCarrier.value)
+                // 嵌入完成后会自动发送允许保存图像的 msg
             }
         }
     }
@@ -276,6 +282,9 @@ class StegoActivity : AppCompatActivity() {
                         Log.d("enable", "executeAllow")
                         binding.executeTangramBtn.isClickable = true
                         binding.executeTangramTv.setTextColor(getColor(R.color.gray))
+                        // 搜索算法可以执行的时候, 说明也可以重新选择图像了
+                        binding.selectSecretImgBtn.isClickable = true
+                        binding.selectContainerImgBtn.isClickable = true
                         Log.d(
                             "enable", "containerImg height is %d, width is %d"
                                 .format(viewModel.containerImg?.height, viewModel.containerImg?.width)
@@ -293,7 +302,7 @@ class StegoActivity : AppCompatActivity() {
                 // 控制 保存含密图像(carrierImg) 按钮是否可以点击的性质和展示
                 MsgType.EnableSaveCarrier.value -> {
                     // 允许 save 按钮的执行, 同时更新 carrierImgView
-                    binding.saveCarrierBtn.isCheckable = true
+                    binding.saveCarrierBtn.isClickable = true
                     binding.saveCarrierTv.setTextColor(getColor(R.color.gray))
                     binding.carrierImgView.setImageDrawable(BitmapDrawable(resources, viewModel.carrierImg))
                     Toast.makeText(this@StegoActivity, "图像加密完成", Toast.LENGTH_SHORT).show()
@@ -337,7 +346,7 @@ class StegoActivity : AppCompatActivity() {
         }
         override fun run() {
                 // 编码阶段
-            // 开启三个线程分别进行编码操作
+            // 开启 3 个线程分别进行 rgb 的编码操作
             val taskRGB = Array(3){ EnCodeTask(it) }
             val futureTaskRGB = Array(3){ FutureTask<String>(taskRGB[it]) }
             for (futureTask in futureTaskRGB){
@@ -345,9 +354,6 @@ class StegoActivity : AppCompatActivity() {
             }
             // 阻塞获得编码结果(包含 height, width 的编码)
             val transCodeRGB = Array(3){ futureTaskRGB[it].get() }
-
-            // only for test
-            CodeStringDao.putCodes(transCodeRGB)
 
             val codeLen = transCodeRGB[0].length
                 // 嵌入阶段, (按照自然顺序嵌入即可)
@@ -381,6 +387,7 @@ class StegoActivity : AppCompatActivity() {
                 }
                 viewModel.carrierImg = carrierImg
             }
+            handler.sendEmptyMessage(MsgType.EnableSaveCarrier.value)
         }
     }
 

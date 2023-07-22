@@ -6,16 +6,15 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
-import android.telecom.Call
 import android.util.Log
 import android.util.TypedValue
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.get
 import androidx.core.graphics.set
 import androidx.core.view.WindowCompat
@@ -24,18 +23,16 @@ import androidx.lifecycle.ViewModelProvider
 import com.bumptech.glide.Glide
 import com.example.tangramimghiding.R
 import com.example.tangramimghiding.databinding.ActivityExtractBinding
-import com.example.tangramimghiding.logic.dao.BlocksDao
-import com.example.tangramimghiding.logic.dao.CodeStringDao
-import com.example.tangramimghiding.logic.dao.TransResDao
+import com.example.tangramimghiding.logic.dao.saveToAlbum
 import com.example.tangramimghiding.logic.model.SettingParameters
-import java.util.concurrent.ForkJoinPool
-import java.util.concurrent.RecursiveTask
-import kotlin.concurrent.thread
 import com.example.tangramimghiding.logic.model.SettingParameters.PARA_CNT
 import com.example.tangramimghiding.logic.utils.BitmapSplitTask
 import com.example.tangramimghiding.logic.utils.EnDecodeUtils
 import java.util.concurrent.Callable
+import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.FutureTask
+import java.util.concurrent.RecursiveTask
+import kotlin.concurrent.thread
 
 
 /**
@@ -71,20 +68,22 @@ class ExtractActivity : AppCompatActivity() {
 
         val r = resources
         val resId = R.drawable.default_carrier_img
-        val uri = Uri.parse(
+        val defaultUri = Uri.parse(
             ContentResolver.SCHEME_ANDROID_RESOURCE + "://"
                     + r.getResourcePackageName(resId) + "/"
                     + r.getResourceTypeName(resId) + "/"
-                    + r.getResourceEntryName(resId))
+                    + r.getResourceEntryName(resId)
+        )
         val defaultCarrierImg =
             BitmapFactory.decodeStream(
-                this@ExtractActivity.contentResolver.openInputStream(uri))
+                this@ExtractActivity.contentResolver.openInputStream(defaultUri)
+            )
 
         val defaultCarrierBlocks = IntArray(defaultCarrierImg.width * defaultCarrierImg.height)
         viewModel.carrierImg = defaultCarrierImg
         viewModel.carrierBlocks = defaultCarrierBlocks
 
-        // 对默认载体图像做分割
+        // 对默认含密图像做分割
         val defaultImgSplitThread = thread {
             val pool = ForkJoinPool()
             viewModel.ifCarrierHasSplit = pool.invoke(
@@ -94,25 +93,35 @@ class ExtractActivity : AppCompatActivity() {
                 )
             )
             pool.shutdown()
-            handler.sendEmptyMessage(MsgType.EnableExecutable.value)
+            if (viewModel.ifCarrierHasSplit) {
+                handler.sendEmptyMessage(MsgType.EnableExecutable.value)
+            } else {
+                Toast.makeText(this, "分割失败", Toast.LENGTH_SHORT).show()
+                Log.w(
+                    "split",
+                    "carrierImg height is [%d], width is [%d]".format(
+                        viewModel.carrierImg?.height,
+                        viewModel.carrierImg?.width
+                    )
+                )
+            }
         }
 
-        // 载体图像的选择和加载
+        // 含密图像的选择和加载
         val secretAlbumLauncher =
             registerForActivityResult(ActivityResultContracts.OpenDocument()) {
                 it?.let { uri ->
+                    Glide.with(this).load(it).into(binding.carrierImgView)
+                    // 等待默认分割线程
+                    defaultImgSplitThread.join()
+                    viewModel.ifCarrierHasSplit = false
                     thread {
-                        // 短暂的不能执行
-                        viewModel.ifCarrierHasSplit = false
+                        // 加载原图, 且避免缩放和裁剪
                         viewModel.carrierImg =
-//                            Glide.with(this@ExtractActivity).asBitmap().load(it).submit().get()
                             BitmapFactory.decodeStream(
-                                this@ExtractActivity.contentResolver.openInputStream(uri))
+                                this@ExtractActivity.contentResolver.openInputStream(uri)
+                            )
                         viewModel.carrierImg?.let { img ->
-                            // 等待默认分割线程
-                            defaultImgSplitThread.join()
-                            // 不需要缩放和裁剪
-                            viewModel.carrierImg = img
                             val cntOfBlocks =
                                 img.height * img.width / SettingParameters.blockEleCnt
                             val carrierBlocks =
@@ -123,7 +132,7 @@ class ExtractActivity : AppCompatActivity() {
                             viewModel.ifCarrierHasSplit = pool.invoke(
                                 BitmapSplitTask(
                                     0, img.height,
-                                    0, img.width, img, carrierBlocks
+                                    0, img.width, img, viewModel.carrierBlocks
                                 )
                             )
                             pool.shutdown()
@@ -135,10 +144,16 @@ class ExtractActivity : AppCompatActivity() {
                                 .format(viewModel.carrierImg?.height, viewModel.carrierImg?.width)
                         )
                     }
-                    Glide.with(this).load(it).into(binding.carrierImgView)
                 }
-            }   // 图像选择按钮
+                if (it == null) {
+                    binding.selectCarrierImgBtn.isClickable = true
+                    binding.executeExtractBtn.isClickable = true
+                }
+            }
+        // 图像选择按钮
         binding.selectCarrierImgBtn.setOnClickListener {
+            binding.executeExtractBtn.isClickable = false
+            it.isClickable = false
             secretAlbumLauncher.launch(arrayOf("image/*"))
         }
 
@@ -147,11 +162,17 @@ class ExtractActivity : AppCompatActivity() {
             thread {
                 // 先提取秘密信息, 后用提取的秘密信息执行秘密图像恢复(恢复得到的称为重建图像)
                 // 1. 提取秘密信息
-                val hidingInfo = FutureTask<Array<IntArray>>(ExtractTask())
-                Thread(hidingInfo).start()
-//                val comp = TransResDao.getTrans()
+//                val hidingInfo = FutureTask<Array<IntArray>>(ExtractTask())
+//                Thread(hidingInfo).start()
+//                val transRes = hidingInfo.get()
+                val transRes = ExtractTask().call()
 
-                val transRes = hidingInfo.get()
+                // 提取出来的信息表面秘密图像的维度为0, 说明这可能不是一个含密图像
+                if (viewModel.reconWidth <= 0 || viewModel.reconWidth <= 0) {
+                    handler.sendEmptyMessage(MsgType.ParaIllegal.value)
+                    return@thread
+                }
+
                 // 2. 根据秘密信息和含密图像本身做变换得到重建图像(reconImg)
                 viewModel.reconImg = Bitmap.createBitmap(
                     viewModel.reconWidth,
@@ -159,11 +180,26 @@ class ExtractActivity : AppCompatActivity() {
                     Bitmap.Config.ARGB_8888
                 )
                 val pool = ForkJoinPool()
-                viewModel.carrierBlocks?.let { carrierBlocks ->
-                    pool.invoke(UseTransTask(0, transRes[0].size, transRes, carrierBlocks))
-                }
+                pool.invoke(UseTransTask(0, transRes[0].size, transRes, viewModel.carrierBlocks))
                 pool.shutdown()
                 handler.sendEmptyMessage(MsgType.EnableSaveRecon.value)
+            }
+        }
+
+        // 保存含密图像
+        binding.saveTargetImgBtn.setOnClickListener {
+            thread {
+                viewModel.reconImg?.let { reconImg ->
+                    val fileName = "reconImg" + System.currentTimeMillis() + ".png"
+                    val uri = reconImg.saveToAlbum(this, fileName, null, 100)
+                    val msg = Message()
+                    msg.apply {
+                        what = StegoActivity.MsgType.SaveEvent.value
+                        // 0 失败 1 成功
+                        arg1 = if (uri == null) 0 else 1
+                    }
+                    handler.sendMessage(msg)
+                }
             }
         }
 
@@ -179,10 +215,14 @@ class ExtractActivity : AppCompatActivity() {
     inner class ExtractHandler(looper: Looper) : Handler(looper) {
         override fun handleMessage(msg: Message) {
             when (msg.what) {
+                // 允许执行恢复算法
                 MsgType.EnableExecutable.value -> {
                     binding.executeExtractBtn.isClickable = true
                     binding.executeExtractTv.setTextColor(getColor(R.color.gray))
+                    // 允许重新选择含密图像
+                    binding.selectCarrierImgBtn.isClickable = true
                 }
+                // 允许保存重建图像
                 MsgType.EnableSaveRecon.value -> {
                     binding.saveTargetImgBtn.isClickable = true
                     binding.saveTargetImgTv.setTextColor(getColor(R.color.gray))
@@ -201,6 +241,7 @@ class ExtractActivity : AppCompatActivity() {
                         )
                     )
                 }
+                // 保存成功\失败的提示
                 MsgType.SaveEvent.value -> {
                     if (msg.arg1 == 1) {
                         // 保存成功
@@ -210,18 +251,24 @@ class ExtractActivity : AppCompatActivity() {
                         Toast.makeText(this@ExtractActivity, "保存失败", Toast.LENGTH_SHORT).show()
                     }
                 }
+                // 解密参数不合法
+                MsgType.ParaIllegal.value -> {
+                    Toast.makeText(this@ExtractActivity, "解密失败", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
 
+
     /**
-     * 首先按照自然顺序从含密图像提取 01 seq
-     * 随后开启 rgb 三个线程分别解码获取结果
+     * 1.按照自然顺序从含密图像提取 01 seq
+     * 2.开启 rgb 三个 Decode 线程分别解码获取结果
+     *@return 返回解码的结果(变换参数)
      *@author aris
      *@time 2023/7/19 15:36
      */
     inner class ExtractTask() : Callable<Array<IntArray>> {
-        lateinit var extractRawRes: Array<String>
+        private lateinit var extractRawRes: Array<String>
         private lateinit var carrierImg: Bitmap
 
         init {
@@ -282,12 +329,8 @@ class ExtractActivity : AppCompatActivity() {
                 }
             }
             // 更新提取结果(不包含 height, width 的编码)
-//            var comp = CodeStringDao.getCodes()
-//            comp = Array(3) { comp[it].substring(firstTarLen) }
             extractRawRes = Array(3) { rawStringBuilderRGB[it].toString() }
             extractRawRes = Array(3) { rawStringBuilderRGB[it].substring(firstTarLen) }
-            // 直接使用 cache 里面的编码字符串
-//            extractRawRes = Array(3) { comp[it] }
             // 开启三个线程分别对提取的结果解码
             val decodeTasks = Array(3) { FutureTask(DecodeTask(it)) }
             for (task in decodeTasks) {
@@ -310,20 +353,18 @@ class ExtractActivity : AppCompatActivity() {
         override fun compute(): Boolean {
             // 中止条件
             // 每次取 taskEndRange 个变换参数出来做变换
-            if (endIdx - startIdx <= PARA_CNT * SearchTransService.taskEndRange) {
+            if (endIdx - startIdx <= PARA_CNT * SettingParameters.taskEndRange) {
                 for (start in startIdx until endIdx step PARA_CNT) {
                     // 单个变换
                     val reconRGB = Array(3) { IntArray(0) }
-                    var baseR: IntArray = IntArray(0)
-                    var baseG: IntArray = IntArray(0)
-                    var baseB: IntArray = IntArray(0)
-                    var baseRGB: Array<IntArray> = Array(0) { IntArray(0) }
+                    var baseR: IntArray
+                    var baseG: IntArray
+                    var baseB: IntArray
+                    var baseRGB: Array<IntArray>
                     // rgb 三个通道分别处理
                     for (i in transRes.indices) {
                         val trans = transRes[i]
-                        // 使用真实的位置(测试用)
-//                        val loc = trans[start]
-                        // 通过相对位置计算真实位置f
+                        // 通过相对位置计算真实位置
                         val loc =
                             ((trans[start] + start / PARA_CNT) * SettingParameters.blockEleCnt) % carrierBlocks.size
                         val rm = SettingParameters.rmChoose[trans[start + 1]]
@@ -375,7 +416,7 @@ class ExtractActivity : AppCompatActivity() {
                 }
                 return true
             } else {
-                val midIdx = startIdx + PARA_CNT * SearchTransService.taskEndRange
+                val midIdx = startIdx + PARA_CNT * SettingParameters.taskEndRange
                 val subTask1 = UseTransTask(startIdx, midIdx, transRes, carrierBlocks)
                 val subTask2 = UseTransTask(midIdx, endIdx, transRes, carrierBlocks)
                 val r2 = subTask2.fork()
@@ -393,7 +434,10 @@ class ExtractActivity : AppCompatActivity() {
         EnableSaveRecon(2),
 
         // 给出保存成功或者失败的提示
-        SaveEvent(3)
+        SaveEvent(3),
+
+        // 解密参数不合法的通知(宽度或者高度为0)
+        ParaIllegal(4)
     }
 }
 

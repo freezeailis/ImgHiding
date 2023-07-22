@@ -19,7 +19,9 @@ class StegoViewModel : ViewModel() {
 
     // 存储秘密图像和载体图像分割后的结果
     // 按照自然顺序存储块
+    @Volatile
     lateinit var containerBlocks : IntArray
+    @Volatile
     lateinit var secretBlocks : IntArray
 
 

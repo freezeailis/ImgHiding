@@ -9,8 +9,8 @@ class ExtractViewModel: ViewModel() {
     // 含密图像
     var carrierImg: Bitmap? = null
     // 含密图像分割后的块
-    var carrierBlocks: IntArray? = null
-
+    @Volatile
+    lateinit var carrierBlocks: IntArray
     @Volatile
     var ifCarrierHasSplit = false
 

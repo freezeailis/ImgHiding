@@ -10,6 +10,12 @@ import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 
+
+/**
+ * 用于在 Service 和 StgeoActivity 中传输分割后的图像子块
+ *@author aris
+ *@time 2023/7/20 22:03
+*/
 object BlocksDao {
     private val gson = Gson()
 

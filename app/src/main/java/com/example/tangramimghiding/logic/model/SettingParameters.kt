@@ -25,11 +25,13 @@ object SettingParameters {
     val blockEleCnt: Int
         get() { return blockEdgeSize * blockEdgeSize }
 
+    // 控制最小任务粒度
+    val taskEndRange = 512 / blockEdgeSize
+
     lateinit var rmChoose: Array<IntArray>
 
         // 搜索用到的超参数
     // k 参数的选择, 放大了十倍以避免浮点数
-//    var kChoose: IntArray = intArrayOf(10, 20, 30, 11, 12, 9, 5, 2)
     var kChoose: IntArray = intArrayOf(10, 20, 5, 1)
     // 对于每个目标块的搜索范围
     var searchRange: Int = 256
@@ -114,7 +116,7 @@ object SettingParameters {
      *@author aris
      *@time 2023/7/17 15:12
     */
-    public fun initNativePara(){
+    fun initNativePara(){
         // load para
 
         // compute rm

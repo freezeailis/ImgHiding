@@ -5,6 +5,12 @@ import com.example.tangramimghiding.HidingApplication
 import com.google.gson.Gson
 import java.io.*
 
+
+/**
+ * 用于在 Service 和 StgeoActivity 中传输搜索得到的变换参数
+ *@author aris
+ *@time 2023/7/20 22:02
+*/
 object TransResDao {
     private val gson = Gson()
     private const val name = "transResCache"

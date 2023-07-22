@@ -15,16 +15,15 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.math.floor
 import kotlin.math.min
+import kotlin.random.Random
 
 class SearchTransService : Service() {
     private val binder = SearchBinder()
+    // 并发读-safe
     lateinit var containerBlocks: IntArray
     lateinit var secretBlocks: IntArray
-    var preFlushedCnt = 0
 
     companion object{
-        // 控制最小任务粒度
-        var taskEndRange = 512 / SettingParameters.blockEdgeSize
         @Volatile
         lateinit var searchResRGB: Array<IntArray>
         val curFinishCnt = AtomicInteger(0)
@@ -32,13 +31,11 @@ class SearchTransService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         thread {
-            preFlushedCnt = 0
             curFinishCnt.getAndSet(0)
             containerBlocks = BlocksDao.getBlocks("containerBlocks")
             secretBlocks = BlocksDao.getBlocks("secretBlocks")
             intent?.let {
                 searchResRGB = Array(3) { IntArray(secretBlocks.size / SettingParameters.blockEleCnt * 4) }
-                taskEndRange = it.getIntExtra("secretImgWidth", taskEndRange)
                 // 不满足条件
                 if (containerBlocks.isEmpty() || secretBlocks.isEmpty()){
                     Toast.makeText(this@SearchTransService, "Empty Array Got", Toast.LENGTH_SHORT).show()
@@ -46,7 +43,11 @@ class SearchTransService : Service() {
                     stopSelf()
                 } else { // 满足条件
                     val pool = ForkJoinPool()
+                    Log.d("poolSize", pool.parallelism.toString())
+                    val startTime = System.currentTimeMillis()
                     pool.invoke(TrangramSearchTask(0, secretBlocks.size))
+                    val endTime = System.currentTimeMillis()
+                    Log.d("timeCost", (endTime - startTime).toString())
                     pool.shutdown()
                     // save search res
                     TransResDao.putTrans(searchResRGB)
@@ -60,7 +61,6 @@ class SearchTransService : Service() {
             }
             stopSelf()
         }
-
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -78,10 +78,9 @@ class SearchTransService : Service() {
      */
     inner class TrangramSearchTask(private val startIdx: Int, private val endIdx: Int)
         : RecursiveTask<Boolean>() {
-
         override fun compute(): Boolean {
             // 中止条件
-            if (endIdx - startIdx <= SettingParameters.blockEleCnt * taskEndRange){
+            if (endIdx - startIdx <= SettingParameters.blockEleCnt * SettingParameters.taskEndRange){
                 for (secIdx in startIdx until endIdx step SettingParameters.blockEleCnt){
                     // 最优变化判断和存储
                     val findRGB = BooleanArray(3){ false }
@@ -182,8 +181,7 @@ class SearchTransService : Service() {
                 // 刷新阈值, 搜索的块的数量超过这个阈值就刷新一次
                 // 发送广播
                 val curFinishCntValue = curFinishCnt.get()
-                if(curFinishCntValue == secretBlocks.size / SettingParameters.blockEleCnt || curFinishCntValue - preFlushedCnt > 200){
-                    preFlushedCnt = curFinishCntValue
+                if(curFinishCntValue == secretBlocks.size / SettingParameters.blockEleCnt || true){
                     val process = 100.0 * curFinishCntValue / (secretBlocks.size / SettingParameters.blockEleCnt)
                     // 通过广播通知搜索进度
                     val intent = Intent("com.example.tangramimghiding.PROCESS_BROADCAST")
@@ -194,12 +192,12 @@ class SearchTransService : Service() {
                 return true
             } else if ((endIdx - startIdx) % SettingParameters.blockEleCnt == 0){
                 // 任务分割
-                val midIdx = startIdx + SettingParameters.blockEleCnt * taskEndRange
+                val midIdx = startIdx + SettingParameters.blockEleCnt * SettingParameters.taskEndRange
                 val subTask1 = TrangramSearchTask(startIdx, midIdx)
                 val subTask2 = TrangramSearchTask(midIdx, endIdx)
-                val r1 = subTask1.compute()
-                val r2 = subTask2.fork()
-                return r1 && r2.get()
+                val r1 = subTask1.fork()
+                val r2 = subTask2.compute()
+                return r1.get() && r2
             }
             return false
         }
