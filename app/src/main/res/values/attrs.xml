@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="MaskView">
+<!--        浮在上方的mask图像的id-->
+        <attr name="maskSource" format="reference"/>
+<!--        对这个mask图像分割的密度, 只表示一条边(两条边相等)-->
+        <attr name="splitDensity" format="integer"/>
+<!--        是否随机化mask的显示-->
+        <attr name="ifShuffle" format="boolean"/>
+<!--        用于表示mask遮蔽的程度, maskLevel >= 100.0 表示mask完全显示, maskLevel <= 0.0 表示mask完全不显示-->
+        <attr name="initMaskLevel" format="float"/>
+<!--        mask 的尺寸-->
+        <attr name="maskHeight" format="dimension"/>
+        <attr name="maskWidth" format="dimension"/>
+    </declare-styleable>
+</resources>

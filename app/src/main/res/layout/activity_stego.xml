@@ -133,12 +133,27 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 app:cardCornerRadius="10dp">
+<!--                down-->
                 <ImageView
                     android:id="@+id/carrier_img_view"
                     android:layout_width="180dp"
                     android:layout_height="180dp"
-                    android:src="@drawable/waiting_img" />
+                    android:src="@drawable/default_container_img"
+                    android:layout_gravity="center"/>
+<!--                top-->
+                <com.example.tangramimghiding.ui.selfView.MaskView
+                    android:id="@+id/maskView"
+                    android:layout_width="180dp"
+                    android:layout_height="180dp"
+                    android:layout_gravity="center"
+                    app:maskHeight="180dp"
+                    app:maskWidth="180dp"
+                    app:ifShuffle="true"
+                    app:maskSource="@drawable/waiting_img"
+                    app:splitDensity="50"
+                    app:initMaskLevel="100.0"/>
             </com.google.android.material.card.MaterialCardView>
+
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/save_carrier_btn"
                 android:layout_width="wrap_content"

@@ -44,8 +44,6 @@ import kotlin.concurrent.thread
  *@time 2023/7/18 20:03
 */
 class StegoActivity : AppCompatActivity() {
-
-
     private lateinit var binding: ActivityStegoBinding
     private val handler by lazy { StegoHandler(Looper.getMainLooper()) }
     private val viewModel by lazy { ViewModelProvider(this).get(StegoViewModel::class.java) }
@@ -180,13 +178,19 @@ class StegoActivity : AppCompatActivity() {
 
         // 控制搜索算法的执行
         binding.executeTangramBtn.setOnClickListener {
+            // 避免重复点击
             it.isClickable = false
+            // 设置 ui 显示上的改变
             binding.executeTangramTv.setTextColor(getColor(R.color.draker_gray))
             if (binding.processBar.visibility == View.GONE || binding.processHintTv.visibility == View.GONE){
                 binding.processBar.visibility = View.VISIBLE
                 binding.processHintTv.visibility = View.VISIBLE
             }
-
+            // 在 carrierImg 上面覆盖一层 mask
+            // mask 下面直接使用 containerImg (两者本身就很接近, 获得真实的 carrierImg 后换成真实的)
+            binding.maskView.setMaskLevel(100.0f)
+            binding.carrierImgView.setImageDrawable(binding.containerImgView.drawable)
+            // 设置完 ui 的变化后把任务交给 SearchTransService 去做
             val intent = Intent(this, SearchTransService::class.java)
             // blocks 太大, 改用 cache 文件传输
             BlocksDao.putBlocks("containerBlocks", viewModel.containerBlocks)
@@ -246,12 +250,14 @@ class StegoActivity : AppCompatActivity() {
             val s = "finish %.2f %%".format(process)
             binding.processHintTv.text = s
             binding.processBar.progress = process.toInt()
+            binding.maskView.setMaskLevel((100.0 - process).toFloat())
                 // 搜索完成
             // 完成 搜索 和 保存变换参数 时会传入200.0表示完成
             if (process > 150.0){
                 val defaultS = "finish 0.0 %"
                 binding.processHintTv.text = defaultS
                 binding.processBar.progress = 0
+//                binding.maskView.visibility = View.GONE
                 binding.processBar.visibility = View.GONE
                 binding.processHintTv.visibility = View.GONE
                 this@StegoActivity.handler.sendEmptyMessage(MsgType.RefreshExecutable.value)
