@@ -20,6 +20,7 @@ import androidx.core.graphics.set
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.example.tangramimghiding.R
 import com.example.tangramimghiding.databinding.ActivityExtractBinding
@@ -28,6 +29,9 @@ import com.example.tangramimghiding.logic.model.SettingParameters
 import com.example.tangramimghiding.logic.model.SettingParameters.PARA_CNT
 import com.example.tangramimghiding.logic.utils.BitmapSplitTask
 import com.example.tangramimghiding.logic.utils.EnDecodeUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.Callable
 import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.FutureTask
@@ -157,32 +161,73 @@ class ExtractActivity : AppCompatActivity() {
             secretAlbumLauncher.launch(arrayOf("image/*"))
         }
 
+//        // 提取算法的执行
+//        binding.executeExtractBtn.setOnClickListener {
+//            thread {
+//                // 先提取秘密信息, 后用提取的秘密信息执行秘密图像恢复(恢复得到的称为重建图像)
+//                // 1. 提取秘密信息
+////                val hidingInfo = FutureTask<Array<IntArray>>(ExtractTask())
+////                Thread(hidingInfo).start()
+////                val transRes = hidingInfo.get()
+//                val transRes = ExtractTask().call()
+//
+//                // 提取出来的信息表面秘密图像的维度为0, 说明这可能不是一个含密图像
+//                if (viewModel.reconWidth <= 0 || viewModel.reconWidth <= 0) {
+//                    handler.sendEmptyMessage(MsgType.ParaIllegal.value)
+//                    return@thread
+//                }
+//
+//                // 2. 根据秘密信息和含密图像本身做变换得到重建图像(reconImg)
+//                viewModel.reconImg = Bitmap.createBitmap(
+//                    viewModel.reconWidth,
+//                    viewModel.reconHeight,
+//                    Bitmap.Config.ARGB_8888
+//                )
+//                val pool = ForkJoinPool()
+//                pool.invoke(UseTransTask(0, transRes[0].size, transRes, viewModel.carrierBlocks))
+//                pool.shutdown()
+//                handler.sendEmptyMessage(MsgType.EnableSaveRecon.value)
+//            }
+//        }
+
         // 提取算法的执行
         binding.executeExtractBtn.setOnClickListener {
-            thread {
-                // 先提取秘密信息, 后用提取的秘密信息执行秘密图像恢复(恢复得到的称为重建图像)
-                // 1. 提取秘密信息
-//                val hidingInfo = FutureTask<Array<IntArray>>(ExtractTask())
-//                Thread(hidingInfo).start()
-//                val transRes = hidingInfo.get()
-                val transRes = ExtractTask().call()
-
-                // 提取出来的信息表面秘密图像的维度为0, 说明这可能不是一个含密图像
-                if (viewModel.reconWidth <= 0 || viewModel.reconWidth <= 0) {
-                    handler.sendEmptyMessage(MsgType.ParaIllegal.value)
-                    return@thread
+            lifecycleScope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.IO) {
+                    // 先提取秘密信息, 后用提取的秘密信息执行秘密图像恢复(恢复得到的称为重建图像)
+                    // 1. 提取秘密信息
+                    val transRes = ExtractTask().call()
+                    // 提取出来的信息表面秘密图像的维度为0, 说明这可能不是一个含密图像
+                    if (viewModel.reconWidth <= 0 || viewModel.reconWidth <= 0) {
+                        handler.sendEmptyMessage(MsgType.ParaIllegal.value)
+                    } else {
+                        // 2. 根据秘密信息和含密图像本身做变换得到重建图像(reconImg)
+                        viewModel.reconImg = Bitmap.createBitmap(
+                            viewModel.reconWidth,
+                            viewModel.reconHeight,
+                            Bitmap.Config.ARGB_8888
+                        )
+                        val pool = ForkJoinPool()
+                        pool.invoke(UseTransTask(0, transRes[0].size, transRes, viewModel.carrierBlocks))
+                        pool.shutdown()
+                    }
                 }
-
-                // 2. 根据秘密信息和含密图像本身做变换得到重建图像(reconImg)
-                viewModel.reconImg = Bitmap.createBitmap(
-                    viewModel.reconWidth,
-                    viewModel.reconHeight,
-                    Bitmap.Config.ARGB_8888
+                binding.saveTargetImgBtn.isClickable = true
+                binding.saveTargetImgTv.setTextColor(getColor(R.color.gray))
+                // 更新预览图像
+                binding.reconImgView.setImageDrawable(
+                    BitmapDrawable(
+                        resources,
+                        viewModel.reconImg
+                    )
                 )
-                val pool = ForkJoinPool()
-                pool.invoke(UseTransTask(0, transRes[0].size, transRes, viewModel.carrierBlocks))
-                pool.shutdown()
-                handler.sendEmptyMessage(MsgType.EnableSaveRecon.value)
+                Log.d(
+                    "enable",
+                    "reconImg height is %d, width is %d".format(
+                        viewModel.reconImg?.height,
+                        viewModel.reconImg?.width
+                    )
+                )
             }
         }
 
