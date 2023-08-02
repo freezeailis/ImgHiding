@@ -181,6 +181,7 @@ class SearchTransService : Service() {
                 // 刷新阈值, 搜索的块的数量超过这个阈值就刷新一次
                 // 发送广播
                 val curFinishCntValue = curFinishCnt.get()
+                    // 满足什么条件发生更新进度广播，姑且先都发着
                 if(curFinishCntValue == secretBlocks.size / SettingParameters.blockEleCnt || true){
                     val process = 100.0 * curFinishCntValue / (secretBlocks.size / SettingParameters.blockEleCnt)
                     // 通过广播通知搜索进度
