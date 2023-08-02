@@ -63,6 +63,7 @@ class StegoActivity : AppCompatActivity() {
         SettingParameters.initNativePara()
         // init 默认秘密图像和默认载体图像
         val options = BitmapFactory.Options()
+//        options.inSampleSize = 2
         options.inScaled = SettingParameters.ifScaled
         var defaultSecretImg =
             BitmapFactory.decodeResource(resources, R.drawable.default_secret_img, options)
