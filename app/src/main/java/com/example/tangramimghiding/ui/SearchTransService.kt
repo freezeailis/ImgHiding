@@ -9,6 +9,7 @@ import android.widget.Toast
 import com.example.tangramimghiding.logic.dao.BlocksDao
 import com.example.tangramimghiding.logic.dao.TransResDao
 import com.example.tangramimghiding.logic.model.SettingParameters
+import com.example.tangramimghiding.logic.utils.fillWith
 import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.RecursiveTask
 import java.util.concurrent.atomic.AtomicInteger
@@ -81,17 +82,48 @@ class SearchTransService : Service() {
         override fun compute(): Boolean {
             // 中止条件
             if (endIdx - startIdx <= SettingParameters.blockEleCnt * SettingParameters.taskEndRange){
+                // 在外部创建好内部需要使用的数组，循环内部复用更新数组里面的值
+                val findRGB = BooleanArray(3){ false }
+                val minLossRGB = DoubleArray(3)
+                val resRGB = Array(3){IntArray(0)}
+                // 秘密块容器初始化
+                val secPixes = IntArray(SettingParameters.blockEleCnt)
+                val secR = IntArray(secPixes.size)
+                val secG = IntArray(secPixes.size)
+                val secB = IntArray(secPixes.size)
+                val secRGB = arrayOf(secR, secG, secB)
+                // 载体块容器初始化
+                val conPixes = IntArray(SettingParameters.blockEleCnt)
+                val conR = IntArray(conPixes.size)
+                val conG = IntArray(conPixes.size)
+                val conB = IntArray(conPixes.size)
+                val conRGB = arrayOf(conR, conG, conB)
+                // 偏置载体块和变化后的偏置载体块
+                val con = IntArray(conRGB[0].size)
+                val transCon = IntArray(con.size)
+                val losses = IntArray(transCon.size)
+
                 for (secIdx in startIdx until endIdx step SettingParameters.blockEleCnt){
                     // 最优变化判断和存储
-                    val findRGB = BooleanArray(3){ false }
-                    val minLossRGB = DoubleArray(3){Int.MAX_VALUE.toDouble()}
-                    val resRGB = Array(3){IntArray(0) }
+//                    val findRGB = BooleanArray(3){ false }
+                    findRGB.fillWith(false)
+//                    val minLossRGB = DoubleArray(3){Int.MAX_VALUE.toDouble()}
+                    minLossRGB.fillWith(Int.MAX_VALUE.toDouble())
+//                    val resRGB = Array(3){IntArray(0) }
+
                     // 秘密块初始化
-                    val secPixes = IntArray(SettingParameters.blockEleCnt){ secretBlocks[it + secIdx] }
-                    val secR = IntArray(secPixes.size){ Color.red(secPixes[it]) }
-                    val secG = IntArray(secPixes.size){ Color.green(secPixes[it]) }
-                    val secB = IntArray(secPixes.size){ Color.blue(secPixes[it]) }
-                    val secRGB = arrayOf(secR, secG, secB)
+//                    val secPixes = IntArray(SettingParameters.blockEleCnt){ secretBlocks[it + secIdx] }
+                    secPixes.fillWith { secretBlocks[it + secIdx] }
+//                    val secR = IntArray(secPixes.size){ Color.red(secPixes[it]) }
+//                    val secG = IntArray(secPixes.size){ Color.green(secPixes[it]) }
+//                    val secB = IntArray(secPixes.size){ Color.blue(secPixes[it]) }
+//                    val secRGB = arrayOf(secR, secG, secB)
+                    secR.fillWith { Color.red(secPixes[it]) }
+                    secG.fillWith { Color.green(secPixes[it]) }
+                    secB.fillWith { Color.blue(secPixes[it]) }
+                    secRGB[0] = secR
+                    secRGB[1] = secG
+                    secRGB[2] = secB
                     // 搜索最优变化并存入到 resRGB 里面
                     // loc
                     for (rowConIdx in secIdx until secIdx + SettingParameters.searchRange * SettingParameters.blockEleCnt
@@ -102,17 +134,26 @@ class SearchTransService : Service() {
                             break
                         // 载体块初始化
                         val conIdx = rowConIdx % containerBlocks.size
-                        val conPixes = IntArray(SettingParameters.blockEleCnt){ containerBlocks[it + conIdx] }
-                        val conR = IntArray(conPixes.size){ Color.red(conPixes[it]) }
-                        val conG = IntArray(conPixes.size){ Color.green(conPixes[it]) }
-                        val conB = IntArray(conPixes.size){ Color.blue(conPixes[it]) }
-                        val conRGB = arrayOf(conR, conG, conB)
+
+//                        val conPixes = IntArray(SettingParameters.blockEleCnt){ containerBlocks[it + conIdx] }
+                        conPixes.fillWith { containerBlocks[it + conIdx] }
+//                        val conR = IntArray(conPixes.size){ Color.red(conPixes[it]) }
+//                        val conG = IntArray(conPixes.size){ Color.green(conPixes[it]) }
+//                        val conB = IntArray(conPixes.size){ Color.blue(conPixes[it]) }
+//                        val conRGB = arrayOf(conR, conG, conB)
+                        conR.fillWith { Color.red(conPixes[it]) }
+                        conG.fillWith { Color.green(conPixes[it]) }
+                        conB.fillWith { Color.blue(conPixes[it]) }
+                        conRGB[0] = conR
+                        conRGB[1] = conG
+                        conRGB[2] = conB
                         // 分别搜索 RGB 三个通道的变化
                         for (i in findRGB.indices){
                             if (findRGB[i])
                                 continue
                             val minValue = conRGB[i].min()
-                            val con = IntArray(conRGB[i].size){conRGB[i][it] - minValue}
+//                            val con = IntArray(conRGB[i].size){conRGB[i][it] - minValue}
+                            con.fillWith { conRGB[i][it] - minValue }
                             val conSum = con.sum()
                             val conMax = con.max()
                             val sec = secRGB[i]
@@ -136,7 +177,8 @@ class SearchTransService : Service() {
                                     }
                                     // 限制 b 的取值在 -255 到 255 之间
                                     b = if (b > 255) 255 else if (b < -255) -255 else b
-                                    val transCon = IntArray(con.size){(con[rm[it]] * k + b).toInt()}
+//                                    val transCon = IntArray(con.size){(con[rm[it]] * k + b).toInt()}
+                                    transCon.fillWith { (con[rm[it]] * k + b).toInt() }
                                     var isAllowed = true
                                     for (idx in transCon.indices){
                                         if (transCon[idx] > 255 || transCon[idx] < 0){
@@ -153,7 +195,8 @@ class SearchTransService : Service() {
                                         // 存储相对位置
                                     val curRes = intArrayOf(loc, rm_idx, k_idx, b / (1 shl SettingParameters.b_offset))
                                     // MSE loss
-                                    val loss = 1.0*IntArray(transCon.size){(transCon[it] - sec[it]) * (transCon[it] - sec[it])}.sum() / transCon.size
+                                    losses.fillWith { (transCon[it] - sec[it]) * (transCon[it] - sec[it]) }
+                                    val loss = 1.0*losses.sum() / transCon.size
                                     if (loss <= SettingParameters.searchThreshold){
                                         findRGB[i] = true
                                         minLossRGB[i] = loss

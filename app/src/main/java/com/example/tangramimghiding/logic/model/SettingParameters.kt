@@ -26,7 +26,7 @@ object SettingParameters {
         get() { return blockEdgeSize * blockEdgeSize }
 
     // 控制最小任务粒度
-    val taskEndRange = 4096 / blockEdgeSize
+    val taskEndRange = 1024 / blockEdgeSize
 
     lateinit var rmChoose: Array<IntArray>
 
