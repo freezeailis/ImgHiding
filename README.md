@@ -1,4 +1,4 @@
-# TangramHiding
+# TangramImgHiding(以图藏图)
 
 使用案例(加载失败可以观看 readme 文件夹内的example.gif): 
 
